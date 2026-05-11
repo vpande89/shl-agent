@@ -4,3 +4,4 @@ groq
 faiss-cpu
 numpy
 pydantic
+requests
