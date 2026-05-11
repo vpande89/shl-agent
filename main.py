@@ -9,10 +9,10 @@ from typing import Dict, List, Literal, Optional
 
 import faiss
 import numpy as np
+import requests
 from fastapi import FastAPI, HTTPException
 from groq import Groq
 from pydantic import BaseModel, ValidationError
-from sentence_transformers import SentenceTransformer
 
 CATALOG_PATH = Path("catalog.json")
 INDEX_PATH = Path("faiss.index")
@@ -41,13 +41,26 @@ class ChatResponse(BaseModel):
     end_of_conversation: bool
 
 
+class HFEmbedder:
+    API_URL = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
+
+    def __init__(self, api_key: str):
+        self.headers = {"Authorization": f"Bearer {api_key}"}
+
+    def encode(self, texts: list[str], **kwargs) -> np.ndarray:
+        r = requests.post(self.API_URL, headers=self.headers, json={"inputs": texts[0]})
+        r.raise_for_status()
+        result = r.json()
+        return np.array([result], dtype=np.float32)
+
+
 app = FastAPI(title="SHL Chat API")
 
 catalog: List[Dict] = []
 catalog_urls: set[str] = set()
 id_map: Dict[str, Dict] = {}
 index: Optional[faiss.Index] = None
-embedder: Optional[SentenceTransformer] = None
+embedder: Optional[HFEmbedder] = None
 groq_client: Optional[Groq] = None
 
 
@@ -70,7 +83,8 @@ def startup() -> None:
 
     catalog_urls = {str(item.get("url", "")).strip() for item in catalog if item.get("url")}
     index = faiss.read_index(str(INDEX_PATH))
-    embedder = SentenceTransformer(EMBED_MODEL)
+    hf_token = os.getenv("HF_TOKEN", "").strip()
+    embedder = HFEmbedder(api_key=hf_token)
 
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     if not api_key:
@@ -83,6 +97,11 @@ def health() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+def _is_vague(text: str) -> bool:
+    vague_keywords = ["assessment", "test", "hire", "hiring", "need help", "suggest"]
+    return len(text.split()) < 8 and any(v in text.lower() for v in vague_keywords)
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest) -> ChatResponse:
     if not payload.messages:
@@ -92,13 +111,21 @@ def chat(payload: ChatRequest) -> ChatResponse:
     if not last_user:
         raise HTTPException(status_code=400, detail="at least one user message is required")
 
+    user_turn_count = sum(1 for m in payload.messages if m.role == "user")
+    if user_turn_count == 1 and _is_vague(last_user):
+        return ChatResponse(
+            reply="Could you tell me more about the role, seniority level, or skills you are hiring for?",
+            recommendations=[],
+            end_of_conversation=False
+        )
+
     if index is None or embedder is None or groq_client is None:
         raise HTTPException(status_code=503, detail="service not ready")
 
-    retrieved = _retrieve(last_user, top_k=10)
+    query = " ".join(m.content for m in payload.messages if m.role == "user")
+    retrieved = _retrieve(query, top_k=10)
     context = _build_context(retrieved)
 
-    user_turn_count = sum(1 for m in payload.messages if m.role == "user")
     assistant_turn_count = sum(1 for m in payload.messages if m.role == "assistant")
     turn_count = user_turn_count + assistant_turn_count
 
