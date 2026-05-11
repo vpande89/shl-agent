@@ -42,13 +42,17 @@ class ChatResponse(BaseModel):
 
 
 class HFEmbedder:
-    API_URL = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
+    API_URL = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2"
 
     def __init__(self, api_key: str):
         self.headers = {"Authorization": f"Bearer {api_key}"}
 
     def encode(self, texts: list[str], **kwargs) -> np.ndarray:
-        r = requests.post(self.API_URL, headers=self.headers, json={"inputs": texts[0]})
+        r = requests.post(
+            self.API_URL,
+            headers=self.headers,
+            json={"inputs": texts[0], "options": {"wait_for_model": True}}
+        )
         r.raise_for_status()
         result = r.json()
         return np.array([result], dtype=np.float32)
