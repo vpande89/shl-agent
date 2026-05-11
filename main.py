@@ -123,7 +123,7 @@ def chat(payload: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=503, detail="service not ready")
 
     query = " ".join(m.content for m in payload.messages if m.role == "user")
-    retrieved = _retrieve(query, top_k=10)
+    retrieved = _retrieve(query, top_k=15)
     context = _build_context(retrieved)
 
     assistant_turn_count = sum(1 for m in payload.messages if m.role == "assistant")
