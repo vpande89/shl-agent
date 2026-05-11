@@ -42,7 +42,7 @@ class ChatResponse(BaseModel):
 
 
 class HFEmbedder:
-    API_URL = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2"
+    API_URL = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction"
 
     def __init__(self, api_key: str):
         self.headers = {"Authorization": f"Bearer {api_key}"}
