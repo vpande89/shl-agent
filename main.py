@@ -101,11 +101,6 @@ def health() -> Dict[str, str]:
     return {"status": "ok"}
 
 
-def _is_vague(text: str) -> bool:
-    vague_keywords = ["assessment", "test", "hire", "hiring", "need help", "suggest"]
-    return len(text.split()) < 8 and any(v in text.lower() for v in vague_keywords)
-
-
 @app.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest) -> ChatResponse:
     if not payload.messages:
@@ -116,7 +111,7 @@ def chat(payload: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=400, detail="at least one user message is required")
 
     user_turn_count = sum(1 for m in payload.messages if m.role == "user")
-    if user_turn_count == 1 and _is_vague(last_user):
+    if user_turn_count == 1 and len(last_user.split()) < 10:
         return ChatResponse(
             reply="Could you tell me more about the role, seniority level, or skills you are hiring for?",
             recommendations=[],
@@ -253,6 +248,11 @@ SIMULATION UPGRADES:
     If user is ok with simulations, upgrade to simulation versions 
     (e.g. Microsoft Excel 365 New instead of MS Excel New).
 
+CRITICAL: Your response must be a single valid JSON object only. 
+No markdown, no backticks, no text before or after the JSON.
+No apostrophes or special characters inside string values.
+Only use double quotes for all JSON keys and values.
+
 Current total turns: {turn_count}
 """.strip()
 
@@ -276,6 +276,10 @@ def _extract_text(llm_response) -> str:
 def _parse_json(text: str) -> Dict:
     if not text:
         raise HTTPException(status_code=502, detail="empty LLM response")
+    # Strip markdown fences if present
+    text = re.sub(r"```json\s*", "", text)
+    text = re.sub(r"```\s*", "", text)
+    text = text.strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:
